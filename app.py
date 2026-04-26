@@ -23,7 +23,7 @@ def home():
     cases = Case.query.all()
 
     html = """
-    <h1>Case Tracker</h1>
+    <h1>Law Firm Case Tracker</h1>
 
     <h2>Upload Updated MyCase CSV</h2>
     <form method="POST" action="/upload_csv" enctype="multipart/form-data">

@@ -10,7 +10,7 @@ import io
 import json
 
 app = Flask(__name__)
-client = OpenAI()
+client = None
 
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///cases.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -224,6 +224,13 @@ Return JSON with:
 Documents:
 {combined_text[:50000]}
 """
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+
+    if not api_key:
+        return "Missing OPENAI_API_KEY on Render. Add it under Environment Variables. <br><a href='/'>Back</a>"
+
+    client = OpenAI(api_key=api_key)
 
     response = client.responses.create(
         model="gpt-4.1-mini",

@@ -110,6 +110,31 @@ def sync_client_contact_for_case(case):
 
     return contact
 
+def ensure_admin_user():
+    admin_email = os.environ.get("ADMIN_EMAIL")
+    admin_password = os.environ.get("ADMIN_PASSWORD")
+    admin_name = os.environ.get("ADMIN_NAME", "Admin")
+
+    if not admin_email or not admin_password:
+        return
+
+    user = User.query.filter_by(email=admin_email).first()
+
+    if user:
+        user.name = admin_name
+        user.role = "admin"
+        user.password_hash = generate_password_hash(admin_password)
+    else:
+        user = User(
+            name=admin_name,
+            email=admin_email,
+            password_hash=generate_password_hash(admin_password),
+            role="admin"
+        )
+        db.session.add(user)
+
+    db.session.commit()
+
 @app.route("/setup_admin", methods=["GET", "POST"])
 def setup_admin():
     existing_user = User.query.first()
@@ -1259,6 +1284,7 @@ def backfill_case_contacts():
 
 with app.app_context():
     db.create_all()
+    ensure_admin_user()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

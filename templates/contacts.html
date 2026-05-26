@@ -1,0 +1,178 @@
+<!doctype html>
+<html>
+<head>
+    <title>Contacts</title>
+
+    <style>
+        body { font-family: Arial; margin: 0; background: #f4f6f9; }
+        .sidebar { width: 220px; height: 100vh; background: #1f2937; color: white; position: fixed; padding: 20px; }
+        .sidebar a { display: block; color: white; text-decoration: none; margin: 15px 0; }
+        .main { margin-left: 240px; padding: 30px; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        input, select, textarea { width: 420px; padding: 8px; margin: 5px 0; }
+        button { padding: 8px 14px; background: #174ea6; color: white; border: none; cursor: pointer; }
+        .contact-box { border-bottom: 1px solid #ddd; padding: 12px 0; }
+        .muted { color: #666; }
+        .danger { background: #b91c1c; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+
+    <a href="/">Dashboard</a>
+    <a href="/calendar">Calendar</a>
+    <a href="/matters">Matters</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/contacts">Contacts</a>
+    <a href="/reports">Reports</a>
+
+    {% if current_user.role == "admin" %}
+        <a href="/admin/users">Users</a>
+    {% endif %}
+
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+
+    <div class="card">
+        <h1>Contacts</h1>
+
+        <form method="GET" action="/contacts">
+            <input name="q" placeholder="Search contacts..." value="{{ q or '' }}">
+
+            <select name="archived">
+                <option value="0" {% if not show_archived %}selected{% endif %}>Active Contacts</option>
+                <option value="1" {% if show_archived %}selected{% endif %}>Archived Contacts</option>
+            </select>
+
+            <button type="submit">Search</button>
+            <a href="/contacts">Clear</a>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Add Contact</h2>
+
+        <form method="POST" action="/contacts">
+            <p>Contact Type</p>
+            <select name="contact_type">
+                <option>Person</option>
+                <option>Client</option>
+                <option>Company</option>
+                <option>Attorney</option>
+                <option>Court</option>
+                <option>Expert</option>
+                <option>Witness</option>
+                <option>Vendor</option>
+            </select>
+
+            <p>First Name</p>
+            <input name="first_name">
+
+            <p>Last Name</p>
+            <input name="last_name">
+
+            <p>Company Name</p>
+            <input name="company_name">
+
+            <p>Email</p>
+            <input name="email">
+
+            <p>Phone</p>
+            <input name="phone">
+
+            <p>Address</p>
+            <textarea name="address"></textarea>
+
+            <p>Contact Group</p>
+            <input name="contact_group" placeholder="Example: Medical Providers, Opposing Counsel, Family">
+
+            <p>Contact Role</p>
+            <input name="contact_role" placeholder="Example: Client, Adjuster, Expert, Witness">
+
+            <p>Linked Matter</p>
+            <select name="case_id">
+                <option value="">No matter selected</option>
+                {% for case in cases %}
+                    <option value="{{ case.id }}">{{ case.case_name }}</option>
+                {% endfor %}
+            </select>
+
+            <p>Notes</p>
+            <textarea name="notes"></textarea>
+
+            <br><br>
+
+            <button type="submit">Add Contact</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>{% if show_archived %}Archived Contacts{% else %}Active Contacts{% endif %}</h2>
+
+        {% for contact in contacts %}
+            <div class="contact-box">
+                <strong>
+                    {% if contact.company_name %}
+                        {{ contact.company_name }}
+                    {% endif %}
+
+                    {% if contact.first_name or contact.last_name %}
+                        {{ contact.first_name or "" }} {{ contact.last_name or "" }}
+                    {% endif %}
+                </strong>
+
+                {% if contact.archived %}
+                    <span class="muted">(Archived)</span>
+                {% endif %}
+
+                <br>
+
+                Type: {{ contact.contact_type }}<br>
+
+                {% if contact.email %}
+                    Email: {{ contact.email }}<br>
+                {% endif %}
+
+                {% if contact.phone %}
+                    Phone: {{ contact.phone }}<br>
+                {% endif %}
+
+                {% if contact.contact_group %}
+                    Group: {{ contact.contact_group }}<br>
+                {% endif %}
+
+                {% if contact.contact_role %}
+                    Role: {{ contact.contact_role }}<br>
+                {% endif %}
+
+                {% if contact.case %}
+                    Linked Matter: <a href="/matter/{{ contact.case.id }}">{{ contact.case.case_name }}</a><br>
+                {% endif %}
+
+                {% if contact.notes %}
+                    <p>{{ contact.notes }}</p>
+                {% endif %}
+
+                {% if contact.archived %}
+                    <form method="POST" action="/contact/{{ contact.id }}/unarchive">
+                        <button type="submit">Unarchive</button>
+                    </form>
+                {% else %}
+                    <form method="POST" action="/contact/{{ contact.id }}/archive">
+                        <button class="danger" type="submit">Archive</button>
+                    </form>
+                {% endif %}
+            </div>
+        {% else %}
+            <p>No contacts found.</p>
+        {% endfor %}
+    </div>
+
+</div>
+
+</body>
+</html>

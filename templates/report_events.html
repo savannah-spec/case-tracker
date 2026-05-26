@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+<head>
+    <title>Event Report</title>
+
+    <style>
+        body { font-family: Arial; margin: 0; background: #f4f6f9; }
+        .sidebar { width: 220px; height: 100vh; background: #1f2937; color: white; position: fixed; padding: 20px; }
+        .sidebar a { display: block; color: white; text-decoration: none; margin: 15px 0; }
+        .main { margin-left: 240px; padding: 30px; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        input, select { padding: 8px; margin: 5px; }
+        button { padding: 8px 14px; background: #174ea6; color: white; border: none; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th, td { border-bottom: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background: #f3f4f6; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+
+    <a href="/">Dashboard</a>
+    <a href="/calendar">Calendar</a>
+    <a href="/matters">Matters</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/contacts">Contacts</a>
+    <a href="/reports">Reports</a>
+
+    {% if current_user.role == "admin" %}
+        <a href="/admin/users">Users</a>
+    {% endif %}
+
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+
+    <div class="card">
+        <h1>Event Report</h1>
+
+        <form method="GET" action="/reports/events">
+            <input name="q" placeholder="Search events..." value="{{ q or '' }}">
+
+            <select name="event_type">
+                <option value="">All Event Types</option>
+                {% for type in event_types %}
+                    <option value="{{ type }}" {% if event_type == type %}selected{% endif %}>{{ type }}</option>
+                {% endfor %}
+            </select>
+
+            <button type="submit">Run Report</button>
+            <a href="/reports/events">Clear</a>
+            <a href="/reports/events?{% if q %}q={{ q }}&{% endif %}{% if event_type %}event_type={{ event_type }}&{% endif %}export=csv">Export CSV</a>
+        </form>
+    </div>
+
+    <div class="card">
+        <table>
+            <tr>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Event</th>
+                <th>Type</th>
+                <th>Matter</th>
+                <th>Staff</th>
+                <th>Location</th>
+                <th>Visibility</th>
+            </tr>
+
+            {% for event in events %}
+                <tr>
+                    <td>{{ event.event_date }}</td>
+                    <td>
+                        {% if event.all_day %}
+                            All Day
+                        {% else %}
+                            {{ event.start_time or "" }}{% if event.end_time %} - {{ event.end_time }}{% endif %}
+                        {% endif %}
+                    </td>
+                    <td>{{ event.title }}</td>
+                    <td>{{ event.event_type }}</td>
+                    <td>{% if event.case %}{{ event.case.case_name }}{% endif %}</td>
+                    <td>{% if event.assigned_user %}{{ event.assigned_user.name }}{% endif %}</td>
+                    <td>{{ event.location }}</td>
+                    <td>{% if event.is_private %}Private{% else %}Visible{% endif %}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="8">No events found.</td>
+                </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+</div>
+
+</body>
+</html>

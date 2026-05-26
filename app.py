@@ -1,90 +1,190 @@
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from models import User
+
 from pypdf import PdfReader
 from docx import Document
 import os
 from openai import OpenAI
 
-from flask import Flask, request, redirect
-from models import db, Case, Task
+from flask import Flask, request, redirect, render_template, Response
+from models import db, Case, Task, User, CalendarEvent, Contact
 import csv
 import io
 import json
 
+from datetime import datetime
+
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-this")
 client = None
 
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///cases.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+
 db.init_app(app)
+
+login_manager = LoginManager()
+login_manager.login_view = "login"
+login_manager.init_app(app)
 
 with app.app_context():
     db.create_all()
 
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+def split_client_name(client_name):
+    if not client_name:
+        return "", ""
+
+    cleaned_name = " ".join(client_name.strip().split())
+
+    if not cleaned_name:
+        return "", ""
+
+    # Handles names entered as "Last, First"
+    if "," in cleaned_name:
+        parts = cleaned_name.split(",", 1)
+        last_name = parts[0].strip()
+        first_name = parts[1].strip()
+        return first_name, last_name
+
+    # Handles names entered as "First Last"
+    parts = cleaned_name.split(" ", 1)
+
+    if len(parts) == 1:
+        return parts[0], ""
+
+    return parts[0], parts[1]
+
+
+def sync_client_contact_for_case(case):
+    client_name = (case.client_name or "").strip()
+
+    if not client_name:
+        return None
+
+    first_name, last_name = split_client_name(client_name)
+
+    existing_contact = Contact.query.filter_by(
+        case_id=case.id,
+        contact_role="Client"
+    ).first()
+
+    if existing_contact:
+        existing_contact.contact_type = "Client"
+        existing_contact.first_name = first_name
+        existing_contact.last_name = last_name
+        existing_contact.company_name = ""
+        existing_contact.contact_group = "Clients"
+        existing_contact.contact_role = "Client"
+        existing_contact.archived = False
+
+        if not existing_contact.notes:
+            existing_contact.notes = "Created automatically from matter client name."
+
+        return existing_contact
+
+    contact = Contact(
+        contact_type="Client",
+        first_name=first_name,
+        last_name=last_name,
+        company_name="",
+        email="",
+        phone="",
+        address="",
+        contact_group="Clients",
+        contact_role="Client",
+        case_id=case.id,
+        notes="Created automatically from matter client name.",
+        archived=False
+    )
+
+    db.session.add(contact)
+
+    return contact
+
+@app.route("/setup_admin", methods=["GET", "POST"])
+def setup_admin():
+    existing_user = User.query.first()
+
+    if existing_user:
+        return redirect("/login")
+
+    if request.method == "POST":
+        user = User(
+            name=request.form["name"],
+            email=request.form["email"],
+            password_hash=generate_password_hash(request.form["password"]),
+            role="admin"
+        )
+        db.session.add(user)
+        db.session.commit()
+        login_user(user)
+        return redirect("/")
+
+    return """
+    <h1>Create Admin Account</h1>
+    <form method="POST">
+        <p>Name</p><input name="name">
+        <p>Email</p><input name="email">
+        <p>Password</p><input name="password" type="password">
+        <br><br>
+        <button>Create Admin</button>
+    </form>
+    """
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+
+    if request.method == "POST":
+        user = User.query.filter_by(email=request.form["email"]).first()
+
+        if user and check_password_hash(user.password_hash, request.form["password"]):
+            login_user(user)
+            return redirect("/")
+
+        return "Invalid login. <br><a href='/login'>Try again</a>"
+
+    return """
+    <h1>Login</h1>
+    <form method="POST">
+        <p>Email</p><input name="email">
+        <p>Password</p><input name="password" type="password">
+        <br><br>
+        <button>Login</button>
+    </form>
+    """
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect("/login")
 
 @app.route("/")
+@login_required
 def home():
     cases = Case.query.all()
 
-    html = """
-    <h1>Law Firm Case Tracker</h1>
+    total_cases = Case.query.count()
 
-    <h2>Upload Updated MyCase CSV</h2>
-    <form method="POST" action="/upload_csv" enctype="multipart/form-data">
-        <input type="file" name="csv_file" accept=".csv">
-        <button type="submit">Upload CSV</button>
-    </form>
+    open_tasks = Task.query.filter_by(completed=False).count()
 
-    <h2>Cases</h2>
-    """
-
-    for case in cases:
-        tasks = Task.query.filter_by(case_id=case.id).all()
-
-        html += f"""
-        <div style="border:1px solid #ccc; padding:10px; margin:10px;">
-            <strong>{case.case_name}</strong><br>
-            MyCase ID: {case.mycase_id}<br>
-            Case Number: {case.case_number}<br>
-            Client: {case.client_name}<br>
-            Stage: {case.stage}<br>
-            Status: {case.status}<br>
-            Document Location: {case.document_location}<br>
-
-            <form method="POST" action="/update_document_source/{case.id}">
-                <p>Folder Path:</p>
-                <input name="document_location" style="width:400px">
-                <button type="submit">Save</button>
-            </form>
-
-            <form method="POST" action="/summarize_case/{case.id}">
-                <button type="submit">Summarize Documents</button>
-            </form>
-
-            <p><strong>Summary:</strong></p>
-            <pre>{case.summary or "No summary yet."}</pre>
-
-            <p><strong>Tasks:</strong></p>
-        """
-
-        if tasks:
-            html += "<ul>"
-            for task in tasks:
-                checked = "checked" if task.completed else ""
-                html += f"""
-                <li>
-                    <form method="POST" action="/toggle_task/{task.id}" style="display:inline;">
-                        <input type="checkbox" onchange="this.form.submit()" {checked}>
-                        {task.description}
-                    </form>
-                </li>
-                """
-            html += "</ul>"
-        else:
-            html += "<p>No tasks yet.</p>"
-
-        html += "</div>"
-
-    return html
+    return render_template(
+        "dashboard.html",
+        cases=cases,
+        total_cases=total_cases,
+        open_tasks=open_tasks
+    )
 
 
 @app.route("/setup")
@@ -130,6 +230,9 @@ def upload_csv():
             existing_case.client_name = client_name
             existing_case.stage = stage
             existing_case.status = status
+
+            sync_client_contact_for_case(existing_case)
+
             updated_count += 1
         else:
             new_case = Case(
@@ -140,7 +243,12 @@ def upload_csv():
                 stage=stage,
                 status=status
             )
+
             db.session.add(new_case)
+            db.session.flush()
+
+            sync_client_contact_for_case(new_case)
+
             added_count += 1
 
     db.session.commit()
@@ -270,6 +378,887 @@ def toggle_task(task_id):
     db.session.commit()
     return redirect("/")
 
+@app.route("/matter/<int:case_id>")
+@login_required
+def matter_detail(case_id):
+    case = Case.query.get_or_404(case_id)
+
+    tasks = Task.query.filter_by(
+        case_id=case.id,
+        parent_task_id=None
+    ).all()
+
+    subtasks = Task.query.filter(
+        Task.case_id == case.id,
+        Task.parent_task_id != None
+    ).all()
+
+    subtasks_by_parent = {}
+
+    for subtask in subtasks:
+        if subtask.parent_task_id not in subtasks_by_parent:
+            subtasks_by_parent[subtask.parent_task_id] = []
+
+        subtasks_by_parent[subtask.parent_task_id].append(subtask)
+
+    users = User.query.all()
+
+    return render_template(
+        "matter_detail.html",
+        case=case,
+        tasks=tasks,
+        subtasks_by_parent=subtasks_by_parent,
+        users=users
+    )
+
+@app.route("/add_case_manual", methods=["POST"])
+@login_required
+def add_case_manual():
+    new_case = Case(
+        mycase_id="manual-" + str(int(__import__("time").time())),
+        case_name=request.form.get("case_name"),
+        client_name=request.form.get("client_name"),
+        case_number=request.form.get("case_number"),
+        stage=request.form.get("stage"),
+        status=request.form.get("status") or "Open"
+    )
+
+    db.session.add(new_case)
+    db.session.flush()
+
+    sync_client_contact_for_case(new_case)
+
+    db.session.commit()
+
+    return redirect("/")
+
+@app.route("/matter/<int:case_id>/add_task", methods=["POST"])
+@login_required
+def add_task(case_id):
+    task = Task(
+        case_id=case_id,
+        parent_task_id=None,
+        assigned_to_id=request.form.get("assigned_to_id") or None,
+        title=request.form.get("title"),
+        description=request.form.get("description"),
+        due_date=request.form.get("due_date"),
+        priority=request.form.get("priority") or "Normal",
+        status=request.form.get("status") or "Not Started",
+        completed=False
+    )
+
+    db.session.add(task)
+    db.session.commit()
+
+    return redirect(f"/matter/{case_id}")
+
+@app.route("/task/<int:task_id>/add_subtask", methods=["POST"])
+@login_required
+def add_subtask(task_id):
+    parent = Task.query.get_or_404(task_id)
+
+    subtask = Task(
+        case_id=parent.case_id,
+        parent_task_id=parent.id,
+        assigned_to_id=parent.assigned_to_id,
+        title=request.form.get("title"),
+        description="",
+        due_date=parent.due_date,
+        priority=parent.priority,
+        status="Not Started",
+        completed=False
+    )
+
+    db.session.add(subtask)
+    db.session.commit()
+
+    return redirect(f"/matter/{parent.case_id}")
+
+@app.route("/admin/users", methods=["GET", "POST"])
+@login_required
+def admin_users():
+    if current_user.role != "admin":
+        return "Access denied"
+
+    if request.method == "POST":
+        new_user = User(
+            name=request.form.get("name"),
+            email=request.form.get("email"),
+            password_hash=generate_password_hash(request.form.get("password")),
+            role=request.form.get("role") or "staff"
+        )
+
+        db.session.add(new_user)
+        db.session.commit()
+
+        return redirect("/admin/users")
+
+    users = User.query.all()
+
+    html = """
+    <h1>User Management</h1>
+    <p><a href="/">Back to Dashboard</a></p>
+
+    <h2>Add User</h2>
+    <form method="POST">
+        <p>Name</p>
+        <input name="name">
+
+        <p>Email</p>
+        <input name="email">
+
+        <p>Password</p>
+        <input name="password" type="password">
+
+        <p>Role</p>
+        <select name="role">
+            <option value="admin">Admin</option>
+            <option value="attorney">Attorney</option>
+            <option value="staff">Staff</option>
+            <option value="paralegal">Paralegal</option>
+        </select>
+
+        <br><br>
+        <button>Add User</button>
+    </form>
+
+    <h2>Existing Users</h2>
+    """
+
+    for user in users:
+        html += f"""
+        <div style="border:1px solid #ccc; padding:10px; margin:10px;">
+            <strong>{user.name}</strong><br>
+            {user.email}<br>
+            Role: {user.role}
+        </div>
+        """
+
+    return html
+
+@app.route("/matters", methods=["GET", "POST"])
+@login_required
+def matters():
+    if request.method == "POST":
+        new_case = Case(
+            mycase_id="manual-" + str(int(__import__("time").time())),
+            case_name=request.form.get("case_name"),
+            client_name=request.form.get("client_name"),
+            case_number=request.form.get("case_number"),
+            stage=request.form.get("stage"),
+            status=request.form.get("status") or "Open"
+        )
+
+        db.session.add(new_case)
+        db.session.flush()
+
+        sync_client_contact_for_case(new_case)
+
+        db.session.commit()
+
+        return redirect("/matters")
+
+    q = request.args.get("q")
+
+    if q:
+        cases = Case.query.filter(
+            Case.case_name.contains(q) |
+            Case.client_name.contains(q) |
+            Case.case_number.contains(q)
+        ).all()
+    else:
+        cases = Case.query.all()
+
+    return render_template(
+        "matters.html",
+        cases=cases,
+        q=q
+    )
+
+@app.route("/matters/new", methods=["GET", "POST"])
+@login_required
+def new_matter():
+    if request.method == "POST":
+        new_case = Case(
+            mycase_id="manual-" + str(int(__import__("time").time())),
+            case_name=request.form.get("case_name"),
+            client_name=request.form.get("client_name"),
+            case_number=request.form.get("case_number"),
+            stage=request.form.get("stage"),
+            status=request.form.get("status") or "Open"
+        )
+
+        db.session.add(new_case)
+        db.session.flush()
+
+        sync_client_contact_for_case(new_case)
+
+        db.session.commit()
+
+        return redirect("/matters")
+
+    return render_template("add_matter.html")
+
+@app.route("/tasks", methods=["GET"])
+@login_required
+def tasks():
+    parent_tasks = Task.query.filter_by(parent_task_id=None).all()
+
+    subtasks = Task.query.filter(
+        Task.parent_task_id != None
+    ).all()
+
+    subtasks_by_parent = {}
+
+    for subtask in subtasks:
+        if subtask.parent_task_id not in subtasks_by_parent:
+            subtasks_by_parent[subtask.parent_task_id] = []
+
+        subtasks_by_parent[subtask.parent_task_id].append(subtask)
+
+    cases = Case.query.all()
+    users = User.query.all()
+
+    case_names = {}
+    for case in cases:
+        case_names[case.id] = case.case_name
+
+    user_names = {}
+    for user in users:
+        user_names[user.id] = user.name
+
+    return render_template(
+        "tasks.html",
+        tasks=parent_tasks,
+        subtasks_by_parent=subtasks_by_parent,
+        case_names=case_names,
+        user_names=user_names
+    )
+
+
+@app.route("/tasks/new", methods=["GET", "POST"])
+@login_required
+def new_task():
+    cases = Case.query.all()
+    users = User.query.all()
+
+    if request.method == "POST":
+        case_id = request.form.get("case_id") or None
+        assigned_to_id = request.form.get("assigned_to_id") or None
+
+        parent_task = Task(
+            case_id=int(case_id) if case_id else None,
+            parent_task_id=None,
+            assigned_to_id=int(assigned_to_id) if assigned_to_id else None,
+            title=request.form.get("title"),
+            description=request.form.get("description"),
+            due_date=request.form.get("due_date"),
+            priority=request.form.get("priority") or "Normal",
+            status=request.form.get("status") or "Not Started",
+            completed=False
+        )
+
+        db.session.add(parent_task)
+        db.session.commit()
+
+        subtask_titles = request.form.getlist("subtasks[]")
+
+        for subtask_title in subtask_titles:
+            if subtask_title.strip():
+                subtask = Task(
+                    case_id=parent_task.case_id,
+                    parent_task_id=parent_task.id,
+                    assigned_to_id=parent_task.assigned_to_id,
+                    title=subtask_title.strip(),
+                    description="",
+                    due_date=None,
+                    priority=parent_task.priority,
+                    status="Not Started",
+                    completed=False
+                )
+
+                db.session.add(subtask)
+
+        db.session.commit()
+
+        return redirect("/tasks")
+
+    return render_template(
+        "add_task.html",
+        cases=cases,
+        users=users
+    )
+
+def csv_response(filename, headers, rows):
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow(headers)
+
+    for row in rows:
+        writer.writerow(row)
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}"
+        }
+    )
+
+
+@app.route("/calendar", methods=["GET"])
+@login_required
+def calendar():
+    view = request.args.get("view") or "Agenda"
+    staff_id = request.args.get("staff_id") or None
+    case_id = request.args.get("case_id") or None
+    event_type = request.args.get("event_type") or None
+
+    event_query = CalendarEvent.query
+
+    if staff_id:
+        event_query = event_query.filter_by(assigned_user_id=int(staff_id))
+
+    if case_id:
+        event_query = event_query.filter_by(case_id=int(case_id))
+
+    if event_type:
+        event_query = event_query.filter_by(event_type=event_type)
+
+    events = event_query.order_by(
+        CalendarEvent.event_date.asc(),
+        CalendarEvent.start_time.asc()
+    ).all()
+
+    task_query = Task.query.filter(
+        Task.due_date.isnot(None),
+        Task.parent_task_id.is_(None)
+    )
+
+    if staff_id:
+        task_query = task_query.filter_by(assigned_to_id=int(staff_id))
+
+    if case_id:
+        task_query = task_query.filter_by(case_id=int(case_id))
+
+    tasks_due = task_query.order_by(Task.due_date.asc()).all()
+
+    cases = Case.query.order_by(Case.case_name.asc()).all()
+    users = User.query.order_by(User.name.asc()).all()
+
+    event_types = [
+        "Court Appearance",
+        "Deadline",
+        "Meeting",
+        "Staff Meeting",
+        "Client Meeting",
+        "Deposition",
+        "Hearing",
+        "Trial",
+        "Reminder",
+        "Other"
+    ]
+
+    return render_template(
+        "calendar.html",
+        events=events,
+        tasks_due=tasks_due,
+        cases=cases,
+        users=users,
+        event_types=event_types,
+        view=view,
+        selected_staff_id=staff_id,
+        selected_case_id=case_id,
+        selected_event_type=event_type
+    )
+
+
+@app.route("/calendar/new", methods=["GET", "POST"])
+@login_required
+def new_calendar_event():
+    cases = Case.query.order_by(Case.case_name.asc()).all()
+    users = User.query.order_by(User.name.asc()).all()
+
+    event_types = [
+        "Court Appearance",
+        "Deadline",
+        "Meeting",
+        "Staff Meeting",
+        "Client Meeting",
+        "Deposition",
+        "Hearing",
+        "Trial",
+        "Reminder",
+        "Other"
+    ]
+
+    repeat_options = [
+        "Does not repeat",
+        "Daily",
+        "Weekly",
+        "Monthly",
+        "Yearly"
+    ]
+
+    if request.method == "POST":
+        case_id = request.form.get("case_id") or None
+
+        if request.form.get("not_linked"):
+            case_id = None
+
+        assigned_user_id = request.form.get("assigned_user_id") or None
+        reminder_minutes = request.form.get("reminder_minutes") or None
+
+        event = CalendarEvent(
+            title=request.form.get("title"),
+            event_type=request.form.get("event_type") or "Event",
+            case_id=int(case_id) if case_id else None,
+            assigned_user_id=int(assigned_user_id) if assigned_user_id else None,
+            created_by_user_id=current_user.id,
+            event_date=request.form.get("event_date"),
+            start_time=request.form.get("start_time"),
+            end_time=request.form.get("end_time"),
+            all_day=True if request.form.get("all_day") else False,
+            repeats=request.form.get("repeats") or "Does not repeat",
+            location=request.form.get("location"),
+            description=request.form.get("description"),
+            reminder_method=request.form.get("reminder_method") or "None",
+            reminder_minutes=int(reminder_minutes) if reminder_minutes else None,
+            is_private=True if request.form.get("is_private") else False
+        )
+
+        db.session.add(event)
+        db.session.commit()
+
+        return redirect("/calendar")
+
+    return render_template(
+        "calendar_event_form.html",
+        event=None,
+        action_url="/calendar/new",
+        cases=cases,
+        users=users,
+        event_types=event_types,
+        repeat_options=repeat_options
+    )
+
+
+@app.route("/calendar/<int:event_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_calendar_event(event_id):
+    event = CalendarEvent.query.get_or_404(event_id)
+
+    cases = Case.query.order_by(Case.case_name.asc()).all()
+    users = User.query.order_by(User.name.asc()).all()
+
+    event_types = [
+        "Court Appearance",
+        "Deadline",
+        "Meeting",
+        "Staff Meeting",
+        "Client Meeting",
+        "Deposition",
+        "Hearing",
+        "Trial",
+        "Reminder",
+        "Other"
+    ]
+
+    repeat_options = [
+        "Does not repeat",
+        "Daily",
+        "Weekly",
+        "Monthly",
+        "Yearly"
+    ]
+
+    if request.method == "POST":
+        case_id = request.form.get("case_id") or None
+
+        if request.form.get("not_linked"):
+            case_id = None
+
+        assigned_user_id = request.form.get("assigned_user_id") or None
+        reminder_minutes = request.form.get("reminder_minutes") or None
+
+        event.title = request.form.get("title")
+        event.event_type = request.form.get("event_type") or "Event"
+        event.case_id = int(case_id) if case_id else None
+        event.assigned_user_id = int(assigned_user_id) if assigned_user_id else None
+        event.event_date = request.form.get("event_date")
+        event.start_time = request.form.get("start_time")
+        event.end_time = request.form.get("end_time")
+        event.all_day = True if request.form.get("all_day") else False
+        event.repeats = request.form.get("repeats") or "Does not repeat"
+        event.location = request.form.get("location")
+        event.description = request.form.get("description")
+        event.reminder_method = request.form.get("reminder_method") or "None"
+        event.reminder_minutes = int(reminder_minutes) if reminder_minutes else None
+        event.is_private = True if request.form.get("is_private") else False
+
+        db.session.commit()
+
+        return redirect("/calendar")
+
+    return render_template(
+        "calendar_event_form.html",
+        event=event,
+        action_url=f"/calendar/{event.id}/edit",
+        cases=cases,
+        users=users,
+        event_types=event_types,
+        repeat_options=repeat_options
+    )
+
+
+@app.route("/calendar/<int:event_id>/delete", methods=["POST"])
+@login_required
+def delete_calendar_event(event_id):
+    event = CalendarEvent.query.get_or_404(event_id)
+
+    db.session.delete(event)
+    db.session.commit()
+
+    return redirect("/calendar")
+
+
+@app.route("/contacts", methods=["GET", "POST"])
+@login_required
+def contacts():
+    cases = Case.query.order_by(Case.case_name.asc()).all()
+
+    if request.method == "POST":
+        contact = Contact(
+            contact_type=request.form.get("contact_type") or "Person",
+            first_name=request.form.get("first_name"),
+            last_name=request.form.get("last_name"),
+            company_name=request.form.get("company_name"),
+            email=request.form.get("email"),
+            phone=request.form.get("phone"),
+            address=request.form.get("address"),
+            contact_group=request.form.get("contact_group"),
+            contact_role=request.form.get("contact_role"),
+            case_id=int(request.form.get("case_id")) if request.form.get("case_id") else None,
+            notes=request.form.get("notes"),
+            archived=False
+        )
+
+        db.session.add(contact)
+        db.session.commit()
+
+        return redirect("/contacts")
+
+    q = request.args.get("q") or None
+    show_archived = True if request.args.get("archived") == "1" else False
+
+    contact_query = Contact.query
+
+    if not show_archived:
+        contact_query = contact_query.filter_by(archived=False)
+
+    if q:
+        contact_query = contact_query.filter(
+            Contact.first_name.contains(q) |
+            Contact.last_name.contains(q) |
+            Contact.company_name.contains(q) |
+            Contact.email.contains(q) |
+            Contact.phone.contains(q)
+        )
+
+    contacts = contact_query.order_by(
+        Contact.last_name.asc(),
+        Contact.first_name.asc(),
+        Contact.company_name.asc()
+    ).all()
+
+    return render_template(
+        "contacts.html",
+        contacts=contacts,
+        cases=cases,
+        q=q,
+        show_archived=show_archived
+    )
+
+
+@app.route("/contact/<int:contact_id>/archive", methods=["POST"])
+@login_required
+def archive_contact(contact_id):
+    contact = Contact.query.get_or_404(contact_id)
+    contact.archived = True
+
+    db.session.commit()
+
+    return redirect("/contacts")
+
+
+@app.route("/contact/<int:contact_id>/unarchive", methods=["POST"])
+@login_required
+def unarchive_contact(contact_id):
+    contact = Contact.query.get_or_404(contact_id)
+    contact.archived = False
+
+    db.session.commit()
+
+    return redirect("/contacts?archived=1")
+
+
+@app.route("/reports", methods=["GET"])
+@login_required
+def reports():
+    total_cases = Case.query.count()
+    open_cases = Case.query.filter_by(status="Open").count()
+    closed_cases = Case.query.filter_by(status="Closed").count()
+
+    total_tasks = Task.query.count()
+    open_tasks = Task.query.filter_by(completed=False).count()
+    completed_tasks = Task.query.filter_by(completed=True).count()
+
+    total_contacts = Contact.query.count()
+    active_contacts = Contact.query.filter_by(archived=False).count()
+    archived_contacts = Contact.query.filter_by(archived=True).count()
+
+    total_events = CalendarEvent.query.count()
+
+    return render_template(
+        "reports.html",
+        total_cases=total_cases,
+        open_cases=open_cases,
+        closed_cases=closed_cases,
+        total_tasks=total_tasks,
+        open_tasks=open_tasks,
+        completed_tasks=completed_tasks,
+        total_contacts=total_contacts,
+        active_contacts=active_contacts,
+        archived_contacts=archived_contacts,
+        total_events=total_events
+    )
+
+
+@app.route("/reports/cases", methods=["GET"])
+@login_required
+def case_report():
+    q = request.args.get("q") or None
+    status = request.args.get("status") or None
+    export = request.args.get("export") or None
+
+    query = Case.query
+
+    if status:
+        query = query.filter_by(status=status)
+
+    if q:
+        query = query.filter(
+            Case.case_name.contains(q) |
+            Case.client_name.contains(q) |
+            Case.case_number.contains(q) |
+            Case.stage.contains(q)
+        )
+
+    cases = query.order_by(Case.case_name.asc()).all()
+
+    if export == "csv":
+        rows = []
+
+        for case in cases:
+            rows.append([
+                case.case_name,
+                case.client_name,
+                case.case_number,
+                case.stage,
+                case.status
+            ])
+
+        return csv_response(
+            "case_report.csv",
+            ["Case Name", "Client", "Case Number", "Stage", "Status"],
+            rows
+        )
+
+    return render_template(
+        "report_cases.html",
+        cases=cases,
+        q=q,
+        status=status
+    )
+
+
+@app.route("/reports/contacts", methods=["GET"])
+@login_required
+def contact_report():
+    q = request.args.get("q") or None
+    contact_type = request.args.get("contact_type") or None
+    archived = request.args.get("archived") or None
+    export = request.args.get("export") or None
+
+    query = Contact.query
+
+    if contact_type:
+        query = query.filter_by(contact_type=contact_type)
+
+    if archived == "1":
+        query = query.filter_by(archived=True)
+    elif archived == "0":
+        query = query.filter_by(archived=False)
+
+    if q:
+        query = query.filter(
+            Contact.first_name.contains(q) |
+            Contact.last_name.contains(q) |
+            Contact.company_name.contains(q) |
+            Contact.email.contains(q) |
+            Contact.phone.contains(q)
+        )
+
+    contacts = query.order_by(
+        Contact.last_name.asc(),
+        Contact.first_name.asc(),
+        Contact.company_name.asc()
+    ).all()
+
+    if export == "csv":
+        rows = []
+
+        for contact in contacts:
+            rows.append([
+                contact.contact_type,
+                contact.first_name,
+                contact.last_name,
+                contact.company_name,
+                contact.email,
+                contact.phone,
+                contact.contact_group,
+                contact.contact_role,
+                "Archived" if contact.archived else "Active"
+            ])
+
+        return csv_response(
+            "contact_report.csv",
+            [
+                "Type",
+                "First Name",
+                "Last Name",
+                "Company",
+                "Email",
+                "Phone",
+                "Group",
+                "Role",
+                "Status"
+            ],
+            rows
+        )
+
+    return render_template(
+        "report_contacts.html",
+        contacts=contacts,
+        q=q,
+        contact_type=contact_type,
+        archived=archived
+    )
+
+
+@app.route("/reports/events", methods=["GET"])
+@login_required
+def event_report():
+    q = request.args.get("q") or None
+    event_type = request.args.get("event_type") or None
+    export = request.args.get("export") or None
+
+    query = CalendarEvent.query
+
+    if event_type:
+        query = query.filter_by(event_type=event_type)
+
+    if q:
+        query = query.filter(
+            CalendarEvent.title.contains(q) |
+            CalendarEvent.location.contains(q) |
+            CalendarEvent.description.contains(q)
+        )
+
+    events = query.order_by(
+        CalendarEvent.event_date.asc(),
+        CalendarEvent.start_time.asc()
+    ).all()
+
+    if export == "csv":
+        rows = []
+
+        for event in events:
+            rows.append([
+                event.title,
+                event.event_type,
+                event.event_date,
+                event.start_time,
+                event.end_time,
+                event.location,
+                event.case.case_name if event.case else "",
+                event.assigned_user.name if event.assigned_user else "",
+                "Private" if event.is_private else "Visible"
+            ])
+
+        return csv_response(
+            "event_report.csv",
+            [
+                "Title",
+                "Type",
+                "Date",
+                "Start",
+                "End",
+                "Location",
+                "Matter",
+                "Assigned User",
+                "Visibility"
+            ],
+            rows
+        )
+
+    event_types = [
+        "Court Appearance",
+        "Deadline",
+        "Meeting",
+        "Staff Meeting",
+        "Client Meeting",
+        "Deposition",
+        "Hearing",
+        "Trial",
+        "Reminder",
+        "Other"
+    ]
+
+    return render_template(
+        "report_events.html",
+        events=events,
+        q=q,
+        event_type=event_type,
+        event_types=event_types
+    )
+
+@app.route("/dev/backfill_case_contacts")
+@login_required
+def backfill_case_contacts():
+    if current_user.role != "admin":
+        return "Access denied"
+
+    cases = Case.query.all()
+
+    created_or_updated_count = 0
+
+    for case in cases:
+        if case.client_name:
+            sync_client_contact_for_case(case)
+            created_or_updated_count += 1
+
+    db.session.commit()
+
+    return f"""
+    <h1>Backfill Complete</h1>
+    <p>Client contacts synced for {created_or_updated_count} matters.</p>
+    <p><a href="/contacts">Go to Contacts</a></p>
+    """
+
+with app.app_context():
+    db.create_all()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

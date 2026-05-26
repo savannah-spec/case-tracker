@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+    <title>Law Firm Dashboard</title>
+
+    <style>
+        body {
+            font-family: Arial;
+            margin: 0;
+            background: #f4f6f9;
+        }
+
+        .sidebar {
+            width: 220px;
+            height: 100vh;
+            background: #1f2937;
+            color: white;
+            position: fixed;
+            padding: 20px;
+        }
+
+        .sidebar a {
+            display: block;
+            color: white;
+            text-decoration: none;
+            margin: 15px 0;
+        }
+
+        .main {
+            margin-left: 240px;
+            padding: 30px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .button-link {
+            display: inline-block;
+            padding: 8px 14px;
+            background: #174ea6;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+
+        .button-link:hover {
+            background: #123c80;
+        }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+
+    <a href="/">Dashboard</a>
+    <a href="/calendar">Calendar</a>
+    <a href="/matters">Matters</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/contacts">Contacts</a>
+    <a href="/reports">Reports</a>
+
+    {% if current_user.role == "admin" %}
+        <a href="/admin/users">Users</a>
+    {% endif %}
+
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+
+    <div class="card">
+        <h1>Dashboard</h1>
+
+        <p>Total Cases: {{ total_cases }}</p>
+
+        <p>Open Tasks: {{ open_tasks }}</p>
+    </div>
+
+    <div class="card">
+        <h2>Quick Actions</h2>
+
+        <a class="button-link" href="/matters/new">Add Case</a>
+
+        <a class="button-link" href="/tasks/new">Add Task</a>
+    </div>
+
+    <div class="card">
+        <h2>Cases</h2>
+
+        {% for case in cases %}
+
+        <p>
+            <strong>{{ case.case_name }}</strong><br>
+            {{ case.client_name }}<br>
+            {{ case.status }}<br>
+            <a href="/matter/{{ case.id }}">Open Matter</a>
+        </p>
+
+        <hr>
+
+        {% endfor %}
+    </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+    <title>Tasks</title>
+
+    <style>
+        body { font-family: Arial; margin: 0; background: #f4f6f9; }
+        .sidebar { width: 220px; height: 100vh; background: #1f2937; color: white; position: fixed; padding: 20px; }
+        .sidebar a { display: block; color: white; text-decoration: none; margin: 15px 0; }
+        .main { margin-left: 240px; padding: 30px; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .button-link { display: inline-block; padding: 8px 14px; background: #174ea6; color: white; text-decoration: none; border-radius: 4px; }
+        .top-bar { display: flex; justify-content: space-between; align-items: center; }
+        .task-box { border-bottom: 1px solid #ddd; padding: 12px 0; }
+        .subtask { margin-left: 25px; color: #444; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+
+    <a href="/">Dashboard</a>
+    <a href="/calendar">Calendar</a>
+    <a href="/matters">Matters</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/contacts">Contacts</a>
+    <a href="/reports">Reports</a>
+
+    {% if current_user.role == "admin" %}
+        <a href="/admin/users">Users</a>
+    {% endif %}
+
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+
+    <div class="card">
+        <div class="top-bar">
+            <h1>Tasks</h1>
+            <a class="button-link" href="/tasks/new">Add Task</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>All Tasks</h2>
+
+        {% for task in tasks %}
+            <div class="task-box">
+                <strong>{{ task.title }}</strong><br>
+
+                {% if task.case_id %}
+                    Matter: {{ case_names.get(task.case_id, "Unknown Matter") }}<br>
+                {% endif %}
+
+                {% if task.assigned_to_id %}
+                    Assigned to: {{ user_names.get(task.assigned_to_id, "Unknown User") }}<br>
+                {% else %}
+                    Assigned to: Unassigned<br>
+                {% endif %}
+
+                Due: {{ task.due_date or "No due date" }}<br>
+                Priority: {{ task.priority }}<br>
+                Status: {{ task.status }}<br>
+
+                {% set child_tasks = subtasks_by_parent.get(task.id, []) %}
+
+                {% if child_tasks %}
+                    <p><strong>Subtasks:</strong></p>
+
+                    {% for subtask in child_tasks %}
+                        <div class="subtask">
+                            - {{ subtask.title }} — {{ subtask.status }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        {% else %}
+            <p>No tasks found.</p>
+        {% endfor %}
+    </div>
+
+</div>
+
+</body>
+</html>

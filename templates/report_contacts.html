@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+<head>
+    <title>Contact Report</title>
+
+    <style>
+        body { font-family: Arial; margin: 0; background: #f4f6f9; }
+        .sidebar { width: 220px; height: 100vh; background: #1f2937; color: white; position: fixed; padding: 20px; }
+        .sidebar a { display: block; color: white; text-decoration: none; margin: 15px 0; }
+        .main { margin-left: 240px; padding: 30px; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        input, select { padding: 8px; margin: 5px; }
+        button { padding: 8px 14px; background: #174ea6; color: white; border: none; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th, td { border-bottom: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background: #f3f4f6; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+
+    <a href="/">Dashboard</a>
+    <a href="/calendar">Calendar</a>
+    <a href="/matters">Matters</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/contacts">Contacts</a>
+    <a href="/reports">Reports</a>
+
+    {% if current_user.role == "admin" %}
+        <a href="/admin/users">Users</a>
+    {% endif %}
+
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+
+    <div class="card">
+        <h1>Contact Report</h1>
+
+        <form method="GET" action="/reports/contacts">
+            <input name="q" placeholder="Search contacts..." value="{{ q or '' }}">
+
+            <select name="contact_type">
+                <option value="">All Types</option>
+                <option value="Person" {% if contact_type == "Person" %}selected{% endif %}>Person</option>
+                <option value="Client" {% if contact_type == "Client" %}selected{% endif %}>Client</option>
+                <option value="Company" {% if contact_type == "Company" %}selected{% endif %}>Company</option>
+                <option value="Attorney" {% if contact_type == "Attorney" %}selected{% endif %}>Attorney</option>
+                <option value="Court" {% if contact_type == "Court" %}selected{% endif %}>Court</option>
+                <option value="Expert" {% if contact_type == "Expert" %}selected{% endif %}>Expert</option>
+                <option value="Witness" {% if contact_type == "Witness" %}selected{% endif %}>Witness</option>
+                <option value="Vendor" {% if contact_type == "Vendor" %}selected{% endif %}>Vendor</option>
+            </select>
+
+            <select name="archived">
+                <option value="">All Statuses</option>
+                <option value="0" {% if archived == "0" %}selected{% endif %}>Active</option>
+                <option value="1" {% if archived == "1" %}selected{% endif %}>Archived</option>
+            </select>
+
+            <button type="submit">Run Report</button>
+            <a href="/reports/contacts">Clear</a>
+            <a href="/reports/contacts?{% if q %}q={{ q }}&{% endif %}{% if contact_type %}contact_type={{ contact_type }}&{% endif %}{% if archived %}archived={{ archived }}&{% endif %}export=csv">Export CSV</a>
+        </form>
+    </div>
+
+    <div class="card">
+        <table>
+            <tr>
+                <th>Type</th>
+                <th>Name</th>
+                <th>Company</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Group</th>
+                <th>Role</th>
+                <th>Status</th>
+            </tr>
+
+            {% for contact in contacts %}
+                <tr>
+                    <td>{{ contact.contact_type }}</td>
+                    <td>{{ contact.first_name or "" }} {{ contact.last_name or "" }}</td>
+                    <td>{{ contact.company_name }}</td>
+                    <td>{{ contact.email }}</td>
+                    <td>{{ contact.phone }}</td>
+                    <td>{{ contact.contact_group }}</td>
+                    <td>{{ contact.contact_role }}</td>
+                    <td>{% if contact.archived %}Archived{% else %}Active{% endif %}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="8">No contacts found.</td>
+                </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+</div>
+
+</body>
+</html>

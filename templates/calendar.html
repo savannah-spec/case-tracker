@@ -1,0 +1,192 @@
+<!doctype html>
+<html>
+<head>
+    <title>Calendar</title>
+
+    <style>
+        body { font-family: Arial; margin: 0; background: #f4f6f9; }
+        .sidebar { width: 220px; height: 100vh; background: #1f2937; color: white; position: fixed; padding: 20px; }
+        .sidebar a { display: block; color: white; text-decoration: none; margin: 15px 0; }
+        .main { margin-left: 240px; padding: 30px; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .top-bar { display: flex; justify-content: space-between; align-items: center; }
+        .button-link { display: inline-block; padding: 8px 14px; background: #174ea6; color: white; text-decoration: none; border-radius: 4px; }
+        button { padding: 8px 14px; background: #174ea6; color: white; border: none; cursor: pointer; }
+        input, select { padding: 8px; margin: 5px; }
+        .view-tabs a { display: inline-block; margin-right: 8px; padding: 8px 12px; background: #e5e7eb; color: #111827; text-decoration: none; border-radius: 4px; }
+        .view-tabs a.active { background: #174ea6; color: white; }
+        .event-box { border-left: 5px solid #174ea6; padding: 12px; margin-bottom: 12px; background: #f9fafb; }
+        .task-box { border-left: 5px solid #8b5cf6; padding: 12px; margin-bottom: 12px; background: #f9fafb; }
+        .muted { color: #666; }
+        .danger { background: #b91c1c; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+
+    <a href="/">Dashboard</a>
+    <a href="/calendar">Calendar</a>
+    <a href="/matters">Matters</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/contacts">Contacts</a>
+    <a href="/reports">Reports</a>
+
+    {% if current_user.role == "admin" %}
+        <a href="/admin/users">Users</a>
+    {% endif %}
+
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+
+    <div class="card">
+        <div class="top-bar">
+            <h1>Calendar</h1>
+            <a class="button-link" href="/calendar/new">Add Event</a>
+        </div>
+
+        <p class="muted">
+            Calendar events can be linked to matters, assigned to staff, marked private, and filtered by view, staff, matter, or event type.
+        </p>
+    </div>
+
+    <div class="card">
+        <h2>Calendar View</h2>
+
+        <div class="view-tabs">
+            <a class="{% if view == 'Staff' %}active{% endif %}" href="/calendar?view=Staff">Staff</a>
+            <a class="{% if view == 'Day' %}active{% endif %}" href="/calendar?view=Day">Day</a>
+            <a class="{% if view == 'Week' %}active{% endif %}" href="/calendar?view=Week">Week</a>
+            <a class="{% if view == 'Month' %}active{% endif %}" href="/calendar?view=Month">Month</a>
+            <a class="{% if view == 'Agenda' %}active{% endif %}" href="/calendar?view=Agenda">Agenda</a>
+        </div>
+
+        <br>
+
+        <form method="GET" action="/calendar">
+            <input type="hidden" name="view" value="{{ view }}">
+
+            <select name="staff_id">
+                <option value="">All Staff</option>
+                {% for user in users %}
+                    <option value="{{ user.id }}" {% if selected_staff_id and selected_staff_id|int == user.id %}selected{% endif %}>
+                        {{ user.name }} - {{ user.role }}
+                    </option>
+                {% endfor %}
+            </select>
+
+            <select name="case_id">
+                <option value="">All Matters</option>
+                {% for case in cases %}
+                    <option value="{{ case.id }}" {% if selected_case_id and selected_case_id|int == case.id %}selected{% endif %}>
+                        {{ case.case_name }}
+                    </option>
+                {% endfor %}
+            </select>
+
+            <select name="event_type">
+                <option value="">All Event Types</option>
+                {% for type in event_types %}
+                    <option value="{{ type }}" {% if selected_event_type == type %}selected{% endif %}>
+                        {{ type }}
+                    </option>
+                {% endfor %}
+            </select>
+
+            <button type="submit">Filter</button>
+            <a href="/calendar">Clear</a>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>{{ view }} Events</h2>
+
+        {% for event in events %}
+            <div class="event-box">
+                <strong>{{ event.event_date }}</strong>
+                {% if event.all_day %}
+                    — All Day
+                {% else %}
+                    — {{ event.start_time or "No start time" }}{% if event.end_time %} to {{ event.end_time }}{% endif %}
+                {% endif %}
+
+                <br>
+
+                <strong>{{ event.title }}</strong>
+                {% if event.is_private %}
+                    <span class="muted">(Private)</span>
+                {% endif %}
+
+                <br>
+                Type: {{ event.event_type }}<br>
+
+                {% if event.case %}
+                    Matter: <a href="/matter/{{ event.case.id }}">{{ event.case.case_name }}</a><br>
+                {% else %}
+                    Matter: Not linked to a matter<br>
+                {% endif %}
+
+                {% if event.assigned_user %}
+                    Staff: {{ event.assigned_user.name }}<br>
+                {% else %}
+                    Staff: Unassigned<br>
+                {% endif %}
+
+                {% if event.location %}
+                    Location: {{ event.location }}<br>
+                {% endif %}
+
+                {% if event.repeats and event.repeats != "Does not repeat" %}
+                    Repeats: {{ event.repeats }}<br>
+                {% endif %}
+
+                {% if event.reminder_method and event.reminder_method != "None" %}
+                    Reminder: {{ event.reminder_method }}
+                    {% if event.reminder_minutes %}
+                        — {{ event.reminder_minutes }} minutes before
+                    {% endif %}
+                    <br>
+                {% endif %}
+
+                {% if event.description %}
+                    <p>{{ event.description }}</p>
+                {% endif %}
+
+                <a href="/calendar/{{ event.id }}/edit">Edit</a>
+
+                <form method="POST" action="/calendar/{{ event.id }}/delete" style="display:inline;">
+                    <button class="danger" type="submit">Delete</button>
+                </form>
+            </div>
+        {% else %}
+            <p>No calendar events found.</p>
+        {% endfor %}
+    </div>
+
+    <div class="card">
+        <h2>Task Deadlines</h2>
+
+        {% for task in tasks_due %}
+            <div class="task-box">
+                <strong>{{ task.due_date }}</strong><br>
+                {{ task.title or task.description }}<br>
+
+                {% if task.case_id %}
+                    Matter ID: {{ task.case_id }}<br>
+                {% endif %}
+
+                Status: {{ task.status }}<br>
+                Priority: {{ task.priority }}
+            </div>
+        {% else %}
+            <p>No task deadlines found.</p>
+        {% endfor %}
+    </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,129 @@
+<!doctype html>
+<html>
+<head>
+    <title>{{ case.case_name }}</title>
+    <style>
+        body { font-family: Arial; margin: 0; background: #f4f6f9; }
+        .sidebar { width: 220px; height: 100vh; background: #1f2937; color: white; position: fixed; padding: 20px; }
+        .sidebar a { display: block; color: white; text-decoration: none; margin: 15px 0; }
+        .main { margin-left: 240px; padding: 30px; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        input, textarea { width: 400px; padding: 8px; margin: 5px 0; }
+        button { padding: 8px 14px; background: #174ea6; color: white; border: none; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+    <a href="/">Dashboard</a>
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+
+    <div class="card">
+        <h1>{{ case.case_name }}</h1>
+        <p><strong>Client:</strong> {{ case.client_name }}</p>
+        <p><strong>Case Number:</strong> {{ case.case_number }}</p>
+        <p><strong>Status:</strong> {{ case.status }}</p>
+        <p><strong>Stage:</strong> {{ case.stage }}</p>
+    </div>
+
+    <div class="card">
+        <h2>Document Folder</h2>
+        <form method="POST" action="/update_document_source/{{ case.id }}">
+            <input name="document_location" value="{{ case.document_location or '' }}">
+            <button>Save Folder</button>
+        </form>
+
+        <br>
+
+        <form method="POST" action="/summarize_case/{{ case.id }}">
+            <button>Summarize Documents</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>AI Summary</h2>
+        <pre>{{ case.summary or "No summary yet." }}</pre>
+    </div>
+
+<div class="card">
+    <h2>Add Task</h2>
+
+    <form method="POST" action="/matter/{{ case.id }}/add_task">
+        <p>Title</p>
+        <input name="title">
+
+        <p>Description</p>
+        <textarea name="description"></textarea>
+
+        <p>Assign To</p>
+        <select name="assigned_to_id">
+            <option value="">Unassigned</option>
+            {% for user in users %}
+                <option value="{{ user.id }}">{{ user.name or user.email }}</option>
+            {% endfor %}
+        </select>
+
+        <p>Due Date</p>
+        <input name="due_date" type="date">
+
+        <p>Priority</p>
+        <select name="priority">
+            <option>Normal</option>
+            <option>High</option>
+            <option>Urgent</option>
+        </select>
+
+        <p>Status</p>
+        <select name="status">
+            <option>Not Started</option>
+            <option>In Progress</option>
+            <option>Waiting</option>
+            <option>Completed</option>
+        </select>
+
+        <br><br>
+        <button>Add Task</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Tasks</h2>
+
+    {% for task in tasks %}
+        <div style="border:1px solid #ddd; padding:10px; margin:10px 0;">
+            <strong>{{ task.title }}</strong><br>
+            {{ task.description }}<br>
+            Due: {{ task.due_date }}<br>
+            Priority: {{ task.priority }}<br>
+            Status: {{ task.status }}<br>
+
+            <form method="POST" action="/toggle_task/{{ task.id }}">
+                <button>Toggle Complete</button>
+            </form>
+
+            <h4>Add Subtask</h4>
+            <form method="POST" action="/task/{{ task.id }}/add_subtask">
+                <input name="title" placeholder="Subtask title">
+                <button>Add Subtask</button>
+            </form>
+
+            {% for subtask in subtasks_by_parent.get(task.id, []) %}
+                <div style="margin-left:25px; padding:8px; border-left:3px solid #ccc;">
+                    ↳ {{ subtask.title }} —
+                    {{ subtask.status }}
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p>No tasks yet.</p>
+    {% endfor %}
+</div>
+
+</div>
+
+</body>
+</html>

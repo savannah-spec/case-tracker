@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+    <title>Case List Report</title>
+
+    <style>
+        body { font-family: Arial; margin: 0; background: #f4f6f9; }
+        .sidebar { width: 220px; height: 100vh; background: #1f2937; color: white; position: fixed; padding: 20px; }
+        .sidebar a { display: block; color: white; text-decoration: none; margin: 15px 0; }
+        .main { margin-left: 240px; padding: 30px; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        input, select { padding: 8px; margin: 5px; }
+        button { padding: 8px 14px; background: #174ea6; color: white; border: none; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th, td { border-bottom: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background: #f3f4f6; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+
+    <a href="/">Dashboard</a>
+    <a href="/calendar">Calendar</a>
+    <a href="/matters">Matters</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/contacts">Contacts</a>
+    <a href="/reports">Reports</a>
+
+    {% if current_user.role == "admin" %}
+        <a href="/admin/users">Users</a>
+    {% endif %}
+
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+
+    <div class="card">
+        <h1>Case List Report</h1>
+
+        <form method="GET" action="/reports/cases">
+            <input name="q" placeholder="Search cases..." value="{{ q or '' }}">
+
+            <select name="status">
+                <option value="">All Statuses</option>
+                <option value="Open" {% if status == "Open" %}selected{% endif %}>Open</option>
+                <option value="Pending" {% if status == "Pending" %}selected{% endif %}>Pending</option>
+                <option value="Closed" {% if status == "Closed" %}selected{% endif %}>Closed</option>
+            </select>
+
+            <button type="submit">Run Report</button>
+            <a href="/reports/cases">Clear</a>
+            <a href="/reports/cases?{% if q %}q={{ q }}&{% endif %}{% if status %}status={{ status }}&{% endif %}export=csv">Export CSV</a>
+        </form>
+    </div>
+
+    <div class="card">
+        <table>
+            <tr>
+                <th>Case Name</th>
+                <th>Client</th>
+                <th>Case Number</th>
+                <th>Stage</th>
+                <th>Status</th>
+            </tr>
+
+            {% for case in cases %}
+                <tr>
+                    <td><a href="/matter/{{ case.id }}">{{ case.case_name }}</a></td>
+                    <td>{{ case.client_name }}</td>
+                    <td>{{ case.case_number }}</td>
+                    <td>{{ case.stage }}</td>
+                    <td>{{ case.status }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="5">No cases found.</td>
+                </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+</div>
+
+</body>
+</html>

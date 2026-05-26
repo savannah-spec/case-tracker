@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+<head>
+    <title>Add Task</title>
+
+    <style>
+        body { font-family: Arial; margin: 0; background: #f4f6f9; }
+        .sidebar { width: 220px; height: 100vh; background: #1f2937; color: white; position: fixed; padding: 20px; }
+        .sidebar a { display: block; color: white; text-decoration: none; margin: 15px 0; }
+        .main { margin-left: 240px; padding: 30px; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        input, select, textarea { width: 400px; padding: 8px; margin: 5px 0; }
+        button { padding: 8px 14px; background: #174ea6; color: white; border: none; cursor: pointer; }
+        .subtask-row { margin-bottom: 8px; }
+        .cancel-link { margin-left: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+
+    <a href="/">Dashboard</a>
+    <a href="/calendar">Calendar</a>
+    <a href="/matters">Matters</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/contacts">Contacts</a>
+    <a href="/reports">Reports</a>
+
+    {% if current_user.role == "admin" %}
+        <a href="/admin/users">Users</a>
+    {% endif %}
+
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+    <div class="card">
+        <h1>Add Task</h1>
+
+        <form method="POST" action="/tasks/new">
+            <p>Task Title</p>
+            <input name="title" required>
+
+            <p>Description</p>
+            <textarea name="description"></textarea>
+
+            <p>Related Matter</p>
+            <select name="case_id">
+                <option value="">No matter selected</option>
+
+                {% for case in cases %}
+                    <option value="{{ case.id }}">{{ case.case_name }}</option>
+                {% endfor %}
+            </select>
+
+            <p>Assign To</p>
+            <select name="assigned_to_id">
+                <option value="">Unassigned</option>
+
+                {% for user in users %}
+                    <option value="{{ user.id }}">{{ user.name }} - {{ user.role }}</option>
+                {% endfor %}
+            </select>
+
+            <p>Due Date</p>
+            <input name="due_date" type="date">
+
+            <p>Priority</p>
+            <select name="priority">
+                <option>Normal</option>
+                <option>Low</option>
+                <option>High</option>
+            </select>
+
+            <p>Status</p>
+            <select name="status">
+                <option>Not Started</option>
+                <option>In Progress</option>
+                <option>Completed</option>
+            </select>
+
+            <hr>
+
+            <h2>Subtasks</h2>
+            <p>Add subtasks now. These will be saved with the parent task.</p>
+
+            <div id="subtasks-container">
+                <div class="subtask-row">
+                    <input name="subtasks[]" placeholder="Subtask title">
+                </div>
+            </div>
+
+            <button type="button" onclick="addSubtask()">Add Another Subtask</button>
+
+            <br><br>
+
+            <button type="submit">Save Task</button>
+            <a class="cancel-link" href="/tasks">Cancel</a>
+        </form>
+    </div>
+</div>
+
+<script>
+function addSubtask() {
+    const container = document.getElementById("subtasks-container");
+
+    const row = document.createElement("div");
+    row.className = "subtask-row";
+
+    const input = document.createElement("input");
+    input.name = "subtasks[]";
+    input.placeholder = "Subtask title";
+
+    row.appendChild(input);
+    container.appendChild(row);
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!doctype html>
+<html>
+<head>
+    <title>Matters</title>
+    <style>
+        body { font-family: Arial; margin: 0; background: #f4f6f9; }
+        .sidebar { width: 220px; height: 100vh; background: #1f2937; color: white; position: fixed; padding: 20px; }
+        .sidebar a { display: block; color: white; text-decoration: none; margin: 15px 0; }
+        .main { margin-left: 240px; padding: 30px; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        input, select, textarea { width: 400px; padding: 8px; margin: 5px 0; }
+        button { padding: 8px 14px; background: #174ea6; color: white; border: none; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+    <a href="/">Dashboard</a>
+    <a href="/calendar">Calendar</a>
+    <a href="/matters">Matters</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/contacts">Contacts</a>
+    <a href="/reports">Reports</a>
+
+    {% if current_user.role == "admin" %}
+        <a href="/admin/users">Users</a>
+    {% endif %}
+
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+    <div class="card">
+        <h1>Matters</h1>
+
+        <form method="GET" action="/matters">
+            <input name="q" placeholder="Search matters..." value="{{ q or '' }}">
+            <button>Search</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Add Matter</h2>
+
+        <form method="POST" action="/matters">
+            <p>Case Name</p>
+            <input name="case_name">
+
+            <p>Client Name</p>
+            <input name="client_name">
+
+            <p>Case Number</p>
+            <input name="case_number">
+
+            <p>Stage</p>
+            <input name="stage">
+
+            <p>Status</p>
+            <select name="status">
+                <option>Open</option>
+                <option>Pending</option>
+                <option>Closed</option>
+            </select>
+
+            <br><br>
+            <button>Add Matter</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>All Matters</h2>
+
+        {% for case in cases %}
+            <div style="border-bottom:1px solid #ddd; padding:12px 0;">
+                <strong>{{ case.case_name }}</strong><br>
+                Client: {{ case.client_name }}<br>
+                Case Number: {{ case.case_number }}<br>
+                Stage: {{ case.stage }}<br>
+                Status: {{ case.status }}<br>
+                <a href="/matter/{{ case.id }}">Open Matter</a>
+            </div>
+        {% else %}
+            <p>No matters found.</p>
+        {% endfor %}
+    </div>
+</div>
+
+</body>
+</html>

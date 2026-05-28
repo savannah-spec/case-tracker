@@ -907,11 +907,12 @@ def refresh_case_financials(case):
     update_case_billing_summary(case)
 
     return case
-    def csv_response(filename, headers, rows):
+    
+def csv_response(filename, headers, rows):
     output = io.StringIO()
     writer = csv.writer(output)
 
-    writer.writerow(headers)
+        writer.writerow(headers)
 
     for row in rows:
         writer.writerow(row)
@@ -923,7 +924,6 @@ def refresh_case_financials(case):
             "Content-Disposition": f"attachment; filename={filename}"
         }
     )
-
 
 @app.route("/calendar", methods=["GET"])
 @login_required

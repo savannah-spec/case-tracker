@@ -1220,6 +1220,294 @@ def unarchive_contact(contact_id):
 
     return redirect("/contacts?archived=1")
 
+def normalize_lawmatics_money(value):
+    return parse_float(value)
+
+
+def normalize_lawmatics_date(value):
+    raw = normalize_text(value)
+
+    if not raw:
+        return ""
+
+    try:
+        parsed = datetime.strptime(raw, "%m/%d/%Y")
+        return parsed.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+
+    try:
+        parsed = datetime.strptime(raw, "%m/%d/%y")
+        return parsed.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+
+    try:
+        parsed = datetime.strptime(raw, "%Y-%m-%d")
+        return parsed.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+
+    return raw
+
+
+def make_lawmatics_import_reference(payment):
+    parts = [
+        payment.get("payment_date", ""),
+        payment.get("contact_name", ""),
+        payment.get("matter_name", ""),
+        str(payment.get("amount", "")),
+        payment.get("payment_method", "")
+    ]
+
+    raw = "-".join(parts).lower()
+    cleaned = ""
+
+    for char in raw:
+        if char.isalnum():
+            cleaned += char
+        else:
+            cleaned += "-"
+
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+
+    return "LM-TRUST-" + cleaned.strip("-")
+
+
+def parse_lawmatics_trust_ledger_text(raw_text):
+    text = raw_text or ""
+
+    text = text.replace("\r", "\n")
+    text = text.replace("\t", "\n")
+
+    lines = []
+
+    for line in text.split("\n"):
+        cleaned = normalize_text(line)
+        if cleaned:
+            lines.append(cleaned)
+
+    rows = []
+    column_count = 11
+
+    for index in range(0, len(lines)):
+        chunk = lines[index:index + column_count]
+
+        if len(chunk) < column_count:
+            continue
+
+        date_value = chunk[0]
+
+        looks_like_date = (
+            "/" in date_value or
+            "-" in date_value
+        )
+
+        if not looks_like_date:
+            continue
+
+        credit_amount = normalize_lawmatics_money(chunk[8])
+
+        if credit_amount <= 0:
+            continue
+
+        payment = {
+            "payment_date": normalize_lawmatics_date(chunk[0]),
+            "status": chunk[1],
+            "invoice": chunk[2],
+            "contact_name": chunk[3],
+            "matter_name": chunk[4],
+            "billing_type": chunk[5],
+            "payment_method": chunk[6],
+            "entered_by": chunk[7],
+            "amount": credit_amount,
+            "debit": normalize_lawmatics_money(chunk[9]),
+            "balance": normalize_lawmatics_money(chunk[10]),
+        }
+
+        payment["reference"] = make_lawmatics_import_reference(payment)
+
+        notes = []
+        if payment["billing_type"]:
+            notes.append("Billing Type: " + payment["billing_type"])
+        if payment["payment_method"]:
+            notes.append("Payment Method: " + payment["payment_method"])
+        if payment["entered_by"]:
+            notes.append("Entered By: " + payment["entered_by"])
+        if payment["invoice"]:
+            notes.append("Invoice: " + payment["invoice"])
+        if payment["status"]:
+            notes.append("Status: " + payment["status"])
+
+        payment["notes"] = " | ".join(notes)
+
+        already_seen = False
+        for existing in rows:
+            if existing["reference"] == payment["reference"]:
+                already_seen = True
+
+        if not already_seen:
+            rows.append(payment)
+
+    rows.sort(key=lambda item: item.get("payment_date") or "", reverse=True)
+
+    return rows
+
+
+def find_case_for_lawmatics_payment(payment, client=None):
+    matter_name = normalize_text(payment.get("matter_name"))
+
+    if matter_name:
+        case = Case.query.filter(Case.case_name.contains(matter_name)).first()
+        if case:
+            return case
+
+    if client:
+        case = Case.query.filter_by(client_id=client.id).first()
+        if case:
+            return case
+
+    contact_name = normalize_text(payment.get("contact_name"))
+
+    if contact_name:
+        case = Case.query.filter(Case.client_name.contains(contact_name)).first()
+        if case:
+            return case
+
+    return None
+
+
+def import_lawmatics_trust_payment(payment):
+    reference = payment.get("reference") or make_lawmatics_import_reference(payment)
+
+    existing = TrustPayment.query.filter_by(
+        lawmatics_transaction_id=reference
+    ).first()
+
+    if existing:
+        return {
+            "status": "duplicate",
+            "reference": reference,
+            "payment": payment
+        }
+
+    client = get_or_create_client_from_name(payment.get("contact_name"))
+
+    case = find_case_for_lawmatics_payment(payment, client)
+
+    if case and not case.client_id and client:
+        case.client_id = client.id
+
+    trust_payment = TrustPayment(
+        trust_payment_reference=reference,
+        payment_date=payment.get("payment_date"),
+        client_id=client.id if client else None,
+        case_id=case.id if case else None,
+        amount=parse_float(payment.get("amount")),
+        payment_source="Lawmatics",
+        lawmatics_transaction_id=reference,
+        status="Completed",
+        notes=payment.get("notes")
+    )
+
+    db.session.add(trust_payment)
+
+    ledger_entry = TrustLedgerEntry(
+        reference_number=reference,
+        transaction_date=payment.get("payment_date"),
+        client_id=client.id if client else None,
+        case_id=case.id if case else None,
+        transaction_type="Deposit",
+        amount=parse_float(payment.get("amount")),
+        notes="Imported from Lawmatics Trust Account Ledger. " + (payment.get("notes") or ""),
+        entered_by_id=current_user.id if current_user.is_authenticated else None
+    )
+
+    db.session.add(ledger_entry)
+
+    if case:
+        refresh_case_financials(case)
+
+    return {
+        "status": "created",
+        "reference": reference,
+        "client_name": client.client_name if client else "",
+        "case_name": case.case_name if case else "",
+        "payment": payment
+    }
+
+
+@app.route("/trust", methods=["GET"])
+@login_required
+def trust_dashboard():
+    trust_payments = TrustPayment.query.order_by(
+        TrustPayment.payment_date.desc()
+    ).all()
+
+    trust_ledger_entries = TrustLedgerEntry.query.order_by(
+        TrustLedgerEntry.transaction_date.desc()
+    ).all()
+
+    cases = Case.query.all()
+
+    for case in cases:
+        refresh_case_financials(case)
+
+    db.session.commit()
+
+    return render_template(
+        "trust.html",
+        trust_payments=trust_payments,
+        trust_ledger_entries=trust_ledger_entries,
+        cases=cases
+    )
+
+
+@app.route("/lawmatics/trust-import", methods=["GET"])
+@login_required
+def lawmatics_trust_import():
+    return render_template(
+        "lawmatics_trust_import.html",
+        parsed_payments=None,
+        import_results=None,
+        raw_text=""
+    )
+
+
+@app.route("/lawmatics/trust-import/preview", methods=["POST"])
+@login_required
+def lawmatics_trust_import_preview():
+    raw_text = request.form.get("ledger_text") or ""
+    parsed_payments = parse_lawmatics_trust_ledger_text(raw_text)
+
+    return render_template(
+        "lawmatics_trust_import.html",
+        parsed_payments=parsed_payments,
+        import_results=None,
+        raw_text=raw_text
+    )
+
+@app.route("/lawmatics/trust-import/run", methods=["POST"])
+@login_required
+def lawmatics_trust_import_run():
+    raw_text = request.form.get("ledger_text") or ""
+    parsed_payments = parse_lawmatics_trust_ledger_text(raw_text)
+
+    import_results = []
+
+    for payment in parsed_payments:
+        result = import_lawmatics_trust_payment(payment)
+        import_results.append(result)
+
+    db.session.commit()
+
+    return render_template(
+        "lawmatics_trust_import.html",
+        parsed_payments=parsed_payments,
+        import_results=import_results,
+        raw_text=raw_text
+    )
 
 @app.route("/reports", methods=["GET"])
 @login_required

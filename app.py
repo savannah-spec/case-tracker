@@ -20,7 +20,7 @@ from models import (
     Invoice,
     TrustPayment,
     TrustLedgerEntry,
-    BillingRate
+    BillingRate,
     CaseDocument
 )
 import csv

@@ -33,6 +33,12 @@ class Case(db.Model):
     minimum_trust_threshold = db.Column(db.Float, default=0)
     trust_status = db.Column(db.String(100), default="Adequately Funded")
 
+    total_expenses = db.Column(db.Float, default=0)
+    unbilled_amount = db.Column(db.Float, default=0)
+
+    dropbox_folder_path = db.Column(db.String(500), nullable=True)
+    dropbox_folder_url = db.Column(db.String(500), nullable=True)
+
     outstanding_ar = db.Column(db.Float, default=0)
     effective_hourly_value = db.Column(db.Float, default=0)
 
@@ -174,6 +180,49 @@ class TimeEntry(db.Model):
     user = db.relationship("User", foreign_keys=[user_id])
     case = db.relationship("Case", foreign_keys=[case_id], backref="time_entries")
 
+class Expense(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    case_id = db.Column(db.Integer, db.ForeignKey("case.id"), nullable=True)
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=True)
+
+    expense_date = db.Column(db.String(50), nullable=True)
+    expense_name = db.Column(db.String(300), nullable=False)
+    expense_category = db.Column(db.String(150), nullable=True)
+    description = db.Column(db.Text, nullable=True)
+
+    amount = db.Column(db.Float, default=0)
+    billable_status = db.Column(db.String(100), default="Billable")
+    invoice_status = db.Column(db.String(100), default="Not Invoiced")
+
+    paid_by = db.Column(db.String(150), nullable=True)
+    receipt_file_url = db.Column(db.String(500), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    case = db.relationship("Case", foreign_keys=[case_id], backref="expenses")
+    client = db.relationship("Client", foreign_keys=[client_id], backref="expenses")
+
+class CaseDocument(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    case_id = db.Column(db.Integer, db.ForeignKey("case.id"), nullable=True)
+    uploaded_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+
+    document_name = db.Column(db.String(300), nullable=False)
+    document_type = db.Column(db.String(150), nullable=True)
+    upload_date = db.Column(db.String(50), nullable=True)
+
+    dropbox_file_path = db.Column(db.String(500), nullable=True)
+    dropbox_file_url = db.Column(db.String(500), nullable=True)
+
+    notes = db.Column(db.Text, nullable=True)
+    document_summary_ai = db.Column(db.Text, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    case = db.relationship("Case", foreign_keys=[case_id], backref="case_documents")
+    uploaded_by = db.relationship("User", foreign_keys=[uploaded_by_id])
 
 class Invoice(db.Model):
     id = db.Column(db.Integer, primary_key=True)

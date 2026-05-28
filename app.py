@@ -21,6 +21,7 @@ from models import (
     TrustPayment,
     TrustLedgerEntry,
     BillingRate
+    CaseDocument
 )
 import csv
 import io
@@ -861,7 +862,8 @@ def update_case_billing_summary(case):
 
     time_entries = TimeEntry.query.filter_by(case_id=case.id).all()
     invoices = Invoice.query.filter_by(case_id=case.id).all()
-
+    expenses = Expense.query.filter_by(case_id=case.id).all()
+    
     total_hours = 0
     billable_hours = 0
     non_billable_hours = 0
@@ -886,9 +888,32 @@ def update_case_billing_summary(case):
     case.billable_hours = round(billable_hours, 2)
     case.non_billable_hours = round(non_billable_hours, 2)
 
-    case.total_amount_billed = round(total_billed, 2)
-    case.total_amount_paid = round(total_paid, 2)
-    case.outstanding_ar = round(total_billed - total_paid, 2)
+    case.total_amount_billed = float(money(total_billed))
+    case.total_trust_applied_to_balance = float(money(total_applied))
+    case.total_amount_paid = float(money(total_paid))
+
+    outstanding_amount = (
+        money(total_billed)
+        - money(total_applied)
+        - money(total_paid)
+    )
+    
+    case.outstanding_ar = float(outstanding_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+    case.total_expenses = round(total_expenses, 2)
+    case.unbilled_amount = round(
+        sum(
+            parse_float(entry.total_amount)
+            for entry in time_entries
+            if entry.invoice_status == "Not Invoiced"
+        ) +
+        sum(
+            parse_float(expense.amount)
+            for expense in expenses
+            if expense.invoice_status == "Not Invoiced"
+        ),
+        2
+    )
 
     if billable_hours:
         case.effective_hourly_value = round(total_billed / billable_hours, 2)

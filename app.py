@@ -8,7 +8,20 @@ import os
 from openai import OpenAI
 
 from flask import Flask, request, redirect, render_template, Response
-from models import db, Case, Task, User, CalendarEvent, Contact
+from models import (
+    db,
+    Case,
+    Task,
+    User,
+    CalendarEvent,
+    Contact,
+    Client,
+    TimeEntry,
+    Invoice,
+    TrustPayment,
+    TrustLedgerEntry,
+    BillingRate
+)
 import csv
 import io
 import json
@@ -257,6 +270,8 @@ def upload_csv():
             existing_case.status = status
 
             sync_client_contact_for_case(existing_case)
+            link_case_to_client(existing_case)
+            refresh_case_financials(existing_case)
 
             updated_count += 1
         else:
@@ -273,7 +288,9 @@ def upload_csv():
             db.session.flush()
 
             sync_client_contact_for_case(new_case)
-
+            link_case_to_client(new_case)
+            refresh_case_financials(new_case)
+            
             added_count += 1
 
     db.session.commit()
@@ -452,6 +469,8 @@ def add_case_manual():
     db.session.flush()
 
     sync_client_contact_for_case(new_case)
+    link_case_to_client(new_case)
+    refresh_case_financials(new_case)
 
     db.session.commit()
 
@@ -578,6 +597,8 @@ def matters():
         db.session.flush()
 
         sync_client_contact_for_case(new_case)
+        link_case_to_client(new_case)
+        refresh_case_financials(new_case)
 
         db.session.commit()
 
@@ -617,6 +638,8 @@ def new_matter():
         db.session.flush()
 
         sync_client_contact_for_case(new_case)
+        link_case_to_client(new_case)
+        refresh_case_financials(new_case)
 
         db.session.commit()
 
@@ -714,7 +737,177 @@ def new_task():
         users=users
     )
 
-def csv_response(filename, headers, rows):
+def parse_float(value, default=0):
+    try:
+        if value is None or value == "":
+            return default
+
+        cleaned = str(value).replace("$", "").replace(",", "").strip()
+
+        if cleaned == "":
+            return default
+
+        return float(cleaned)
+    except Exception:
+        return default
+
+
+def normalize_text(value):
+    return " ".join(str(value or "").strip().split())
+
+
+def make_reference(prefix):
+    return prefix + "-" + str(int(__import__("time").time()))
+
+
+def get_or_create_client_from_name(client_name):
+    cleaned_name = normalize_text(client_name)
+
+    if not cleaned_name:
+        return None
+
+    client = Client.query.filter_by(client_name=cleaned_name).first()
+
+    if client:
+        return client
+
+    client = Client(
+        client_name=cleaned_name,
+        client_type="Individual",
+        status="Active",
+        client_notes="Created automatically from matter/client import."
+    )
+
+    db.session.add(client)
+    db.session.flush()
+
+    return client
+
+
+def link_case_to_client(case):
+    if not case:
+        return None
+
+    if case.client_id:
+        return Client.query.get(case.client_id)
+
+    client = get_or_create_client_from_name(case.client_name)
+
+    if client:
+        case.client_id = client.id
+
+    return client
+
+
+def trust_entry_signed_amount(entry):
+    amount = abs(parse_float(entry.amount))
+
+    positive_types = [
+        "Deposit",
+        "Trust Payment"
+    ]
+
+    negative_types = [
+        "Withdrawal",
+        "Earned Fee Transfer",
+        "Refund",
+        "Adjustment"
+    ]
+
+    if entry.transaction_type in positive_types:
+        return amount
+
+    if entry.transaction_type in negative_types:
+        return -amount
+
+    return parse_float(entry.amount)
+
+
+def calculate_case_trust_balance(case_id):
+    entries = TrustLedgerEntry.query.filter_by(case_id=case_id).all()
+
+    balance = 0
+
+    for entry in entries:
+        balance += trust_entry_signed_amount(entry)
+
+    return round(balance, 2)
+
+
+def update_case_trust_status(case):
+    if not case:
+        return None
+
+    balance = calculate_case_trust_balance(case.id)
+    case.trust_balance = balance
+
+    minimum = parse_float(case.minimum_trust_threshold)
+
+    if balance < 0:
+        case.trust_status = "Negative Balance"
+    elif minimum and balance < minimum:
+        case.trust_status = "Replenishment Needed"
+    elif balance <= 0:
+        case.trust_status = "Low Balance"
+    else:
+        case.trust_status = "Adequately Funded"
+
+    return case.trust_status
+
+
+def update_case_billing_summary(case):
+    if not case:
+        return None
+
+    time_entries = TimeEntry.query.filter_by(case_id=case.id).all()
+    invoices = Invoice.query.filter_by(case_id=case.id).all()
+
+    total_hours = 0
+    billable_hours = 0
+    non_billable_hours = 0
+
+    for entry in time_entries:
+        hours = parse_float(entry.hours_worked)
+        total_hours += hours
+
+        if entry.billable_status == "Billable":
+            billable_hours += hours
+        else:
+            non_billable_hours += hours
+
+    total_billed = 0
+    total_paid = 0
+
+    for invoice in invoices:
+        total_billed += parse_float(invoice.total_amount)
+        total_paid += parse_float(invoice.amount_paid)
+
+    case.total_hours_worked = round(total_hours, 2)
+    case.billable_hours = round(billable_hours, 2)
+    case.non_billable_hours = round(non_billable_hours, 2)
+
+    case.total_amount_billed = round(total_billed, 2)
+    case.total_amount_paid = round(total_paid, 2)
+    case.outstanding_ar = round(total_billed - total_paid, 2)
+
+    if billable_hours:
+        case.effective_hourly_value = round(total_billed / billable_hours, 2)
+    else:
+        case.effective_hourly_value = 0
+
+    return case
+
+
+def refresh_case_financials(case):
+    if not case:
+        return None
+
+    link_case_to_client(case)
+    update_case_trust_status(case)
+    update_case_billing_summary(case)
+
+    return case
+    def csv_response(filename, headers, rows):
     output = io.StringIO()
     writer = csv.writer(output)
 

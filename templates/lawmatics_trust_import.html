@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+    <title>Import Lawmatics Trust Ledger</title>
+
+    <style>
+        body { font-family: Arial; margin: 0; background: #f4f6f9; }
+        .sidebar { width: 220px; height: 100vh; background: #1f2937; color: white; position: fixed; padding: 20px; }
+        .sidebar a { display: block; color: white; text-decoration: none; margin: 15px 0; }
+        .main { margin-left: 240px; padding: 30px; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        textarea { width: 100%; min-height: 250px; padding: 10px; }
+        button { padding: 8px 14px; background: #174ea6; color: white; border: none; cursor: pointer; margin-right: 10px; }
+        .button-link { display: inline-block; padding: 8px 14px; background: #174ea6; color: white; text-decoration: none; border-radius: 4px; margin-right: 10px; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th, td { border-bottom: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background: #f3f4f6; }
+        .success { color: green; font-weight: bold; }
+        .duplicate { color: #b45309; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+
+    <a href="/">Dashboard</a>
+    <a href="/calendar">Calendar</a>
+    <a href="/matters">Matters</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/contacts">Contacts</a>
+    <a href="/trust">Trust</a>
+    <a href="/reports">Reports</a>
+
+    {% if current_user.role == "admin" %}
+        <a href="/admin/users">Users</a>
+    {% endif %}
+
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+
+    <div class="card">
+        <h1>Import Lawmatics Trust Ledger</h1>
+
+        <p>
+            Paste the Lawmatics Trust Account Ledger table text or copied page text here.
+            The parser expects the Lawmatics 11-column structure:
+            Date, Status, Invoice, Contact, Matter, Type of Billing, Payment Method,
+            Entered By, Credit, Debit, Balance.
+        </p>
+
+        <form method="POST" action="/lawmatics/trust-import/preview">
+            <textarea name="ledger_text">{{ raw_text or "" }}</textarea>
+
+            <br><br>
+
+            <button type="submit">Preview Import</button>
+        </form>
+
+        <br>
+
+        {% if parsed_payments %}
+            <form method="POST" action="/lawmatics/trust-import/run">
+                <textarea name="ledger_text" style="display:none;">{{ raw_text or "" }}</textarea>
+                <button type="submit">Import Parsed Payments</button>
+            </form>
+        {% endif %}
+
+        <br>
+
+        <a class="button-link" href="/trust">Back to Trust Dashboard</a>
+    </div>
+
+    {% if parsed_payments %}
+        <div class="card">
+            <h2>Parsed Lawmatics Payments</h2>
+
+            <table>
+                <tr>
+                    <th>Date</th>
+                    <th>Contact</th>
+                    <th>Matter</th>
+                    <th>Payment Method</th>
+                    <th>Amount</th>
+                    <th>Reference</th>
+                    <th>Notes</th>
+                </tr>
+
+                {% for payment in parsed_payments %}
+                    <tr>
+                        <td>{{ payment.payment_date }}</td>
+                        <td>{{ payment.contact_name }}</td>
+                        <td>{{ payment.matter_name }}</td>
+                        <td>{{ payment.payment_method }}</td>
+                        <td>${{ "%.2f"|format(payment.amount or 0) }}</td>
+                        <td>{{ payment.reference }}</td>
+                        <td>{{ payment.notes }}</td>
+                    </tr>
+                {% endfor %}
+            </table>
+        </div>
+    {% endif %}
+
+    {% if import_results %}
+        <div class="card">
+            <h2>Import Results</h2>
+
+            <table>
+                <tr>
+                    <th>Status</th>
+                    <th>Reference</th>
+                    <th>Client</th>
+                    <th>Matter</th>
+                    <th>Amount</th>
+                </tr>
+
+                {% for result in import_results %}
+                    <tr>
+                        <td>
+                            {% if result.status == "created" %}
+                                <span class="success">Created</span>
+                            {% elif result.status == "duplicate" %}
+                                <span class="duplicate">Duplicate</span>
+                            {% else %}
+                                {{ result.status }}
+                            {% endif %}
+                        </td>
+                        <td>{{ result.reference }}</td>
+                        <td>{{ result.client_name }}</td>
+                        <td>{{ result.case_name }}</td>
+                        <td>${{ "%.2f"|format(result.payment.amount or 0) }}</td>
+                    </tr>
+                {% endfor %}
+            </table>
+        </div>
+    {% endif %}
+
+</div>
+
+</body>
+</html>

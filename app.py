@@ -912,7 +912,7 @@ def csv_response(filename, headers, rows):
     output = io.StringIO()
     writer = csv.writer(output)
 
-        writer.writerow(headers)
+    writer.writerow(headers)
 
     for row in rows:
         writer.writerow(row)

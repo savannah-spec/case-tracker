@@ -1,0 +1,161 @@
+<!doctype html>
+<html>
+<head>
+    <title>Trust Accounting</title>
+
+    <style>
+        body { font-family: Arial; margin: 0; background: #f4f6f9; }
+        .sidebar { width: 220px; height: 100vh; background: #1f2937; color: white; position: fixed; padding: 20px; }
+        .sidebar a { display: block; color: white; text-decoration: none; margin: 15px 0; }
+        .main { margin-left: 240px; padding: 30px; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .button-link { display: inline-block; padding: 8px 14px; background: #174ea6; color: white; text-decoration: none; border-radius: 4px; margin-right: 10px; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th, td { border-bottom: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background: #f3f4f6; }
+        .status-good { color: green; font-weight: bold; }
+        .status-warning { color: #b45309; font-weight: bold; }
+        .status-danger { color: #b91c1c; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Your Firm</h2>
+
+    <a href="/">Dashboard</a>
+    <a href="/calendar">Calendar</a>
+    <a href="/matters">Matters</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/contacts">Contacts</a>
+    <a href="/trust">Trust</a>
+    <a href="/reports">Reports</a>
+
+    {% if current_user.role == "admin" %}
+        <a href="/admin/users">Users</a>
+    {% endif %}
+
+    <a href="/logout">Logout</a>
+</div>
+
+<div class="main">
+
+    <div class="card">
+        <h1>Trust Accounting</h1>
+        <p>Review matter trust balances, Lawmatics trust payments, and trust ledger activity.</p>
+
+        <a class="button-link" href="/lawmatics/trust-import">Import Lawmatics Trust Ledger</a>
+    </div>
+
+    <div class="card">
+        <h2>Matter Trust Balances</h2>
+
+        <table>
+            <tr>
+                <th>Matter</th>
+                <th>Client</th>
+                <th>Trust Balance</th>
+                <th>Minimum Threshold</th>
+                <th>Trust Status</th>
+                <th>Total Billed</th>
+                <th>Total Paid</th>
+                <th>Outstanding A/R</th>
+            </tr>
+
+            {% for case in cases %}
+                <tr>
+                    <td><a href="/matter/{{ case.id }}">{{ case.case_name }}</a></td>
+                    <td>{{ case.client_name }}</td>
+                    <td>${{ "%.2f"|format(case.trust_balance or 0) }}</td>
+                    <td>${{ "%.2f"|format(case.minimum_trust_threshold or 0) }}</td>
+                    <td>
+                        {% if case.trust_status == "Adequately Funded" %}
+                            <span class="status-good">{{ case.trust_status }}</span>
+                        {% elif case.trust_status == "Negative Balance" %}
+                            <span class="status-danger">{{ case.trust_status }}</span>
+                        {% else %}
+                            <span class="status-warning">{{ case.trust_status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>${{ "%.2f"|format(case.total_amount_billed or 0) }}</td>
+                    <td>${{ "%.2f"|format(case.total_amount_paid or 0) }}</td>
+                    <td>${{ "%.2f"|format(case.outstanding_ar or 0) }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="8">No matters found.</td>
+                </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Trust Payments</h2>
+
+        <table>
+            <tr>
+                <th>Date</th>
+                <th>Reference</th>
+                <th>Client</th>
+                <th>Matter</th>
+                <th>Amount</th>
+                <th>Source</th>
+                <th>Status</th>
+                <th>Notes</th>
+            </tr>
+
+            {% for payment in trust_payments %}
+                <tr>
+                    <td>{{ payment.payment_date }}</td>
+                    <td>{{ payment.trust_payment_reference }}</td>
+                    <td>{% if payment.client %}{{ payment.client.client_name }}{% endif %}</td>
+                    <td>{% if payment.case %}{{ payment.case.case_name }}{% endif %}</td>
+                    <td>${{ "%.2f"|format(payment.amount or 0) }}</td>
+                    <td>{{ payment.payment_source }}</td>
+                    <td>{{ payment.status }}</td>
+                    <td>{{ payment.notes }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="8">No trust payments found.</td>
+                </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Trust Ledger</h2>
+
+        <table>
+            <tr>
+                <th>Date</th>
+                <th>Reference</th>
+                <th>Type</th>
+                <th>Client</th>
+                <th>Matter</th>
+                <th>Amount</th>
+                <th>Notes</th>
+            </tr>
+
+            {% for entry in trust_ledger_entries %}
+                <tr>
+                    <td>{{ entry.transaction_date }}</td>
+                    <td>{{ entry.reference_number }}</td>
+                    <td>{{ entry.transaction_type }}</td>
+                    <td>{% if entry.client %}{{ entry.client.client_name }}{% endif %}</td>
+                    <td>{% if entry.case %}{{ entry.case.case_name }}{% endif %}</td>
+                    <td>${{ "%.2f"|format(entry.amount or 0) }}</td>
+                    <td>{{ entry.notes }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="7">No trust ledger entries found.</td>
+                </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+</div>
+
+</body>
+</html>

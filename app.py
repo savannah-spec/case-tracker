@@ -29,6 +29,8 @@ import json
 
 from datetime import datetime
 
+from decimal import Decimal, ROUND_HALF_UP
+
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -752,6 +754,16 @@ def parse_float(value, default=0):
     except Exception:
         return default
 
+def money(value):
+    if value is None or value == "":
+        return Decimal("0.00")
+
+    cleaned = str(value).replace("$", "").replace(",", "").strip()
+
+    if cleaned == "":
+        return Decimal("0.00")
+
+    return Decimal(cleaned).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 def normalize_text(value):
     return " ".join(str(value or "").strip().split())
